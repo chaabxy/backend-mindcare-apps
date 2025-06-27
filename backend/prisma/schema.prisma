@@ -1,0 +1,107 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Admin {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  password  String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("admins")
+}
+
+model Penyakit {
+  id          String @id @default(cuid())
+  kode        String @unique // P01, P02, P03
+  nama        String
+  deskripsi   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rules       Rule[]
+  diagnoses   Diagnosis[]
+
+  @@map("penyakit")
+}
+
+model Gejala {
+  id          String @id @default(cuid())
+  kode        String @unique // G01, G02, etc
+  nama        String
+  deskripsi   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rules             Rule[]
+  userGejalaInputs  UserGejalaInput[]
+
+  @@map("gejala")
+}
+
+model Rule {
+  id          String @id @default(cuid())
+  penyakitId  String
+  gejalaId    String
+  cfValue     Float  // Certainty Factor value (0.0 - 1.0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  penyakit    Penyakit @relation(fields: [penyakitId], references: [id], onDelete: Cascade)
+  gejala      Gejala   @relation(fields: [gejalaId], references: [id], onDelete: Cascade)
+
+  @@unique([penyakitId, gejalaId])
+  @@map("rules")
+}
+
+model User {
+  id          String @id @default(cuid())
+  nama        String
+  noWhatsapp  String
+  umur        Int?
+  jenisKelamin String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  diagnoses   Diagnosis[]
+
+  @@map("users")
+}
+
+model Diagnosis {
+  id              String @id @default(cuid())
+  userId          String
+  penyakitId      String?
+  cfResult        Float? // Final CF calculation result
+  persentase      Float? // CF result in percentage
+  status          String // "completed", "processing"
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user            User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  penyakit        Penyakit? @relation(fields: [penyakitId], references: [id])
+  userGejalaInputs UserGejalaInput[]
+
+  @@map("diagnoses")
+}
+
+model UserGejalaInput {
+  id          String @id @default(cuid())
+  diagnosisId String
+  gejalaId    String
+  cfUser      Float  // User's certainty factor (0.2, 0.4, 0.6, 0.8, 1.0)
+  createdAt   DateTime @default(now())
+
+  diagnosis   Diagnosis @relation(fields: [diagnosisId], references: [id], onDelete: Cascade)
+  gejala      Gejala    @relation(fields: [gejalaId], references: [id], onDelete: Restrict)
+
+  @@unique([diagnosisId, gejalaId])
+  @@map("user_gejala_inputs")
+}
