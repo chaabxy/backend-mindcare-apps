@@ -24,15 +24,6 @@ const authRoutes = [
     method: "POST",
     path: "/api/auth/logout",
     handler: AuthController.logout,
-    options: {
-      validate: {
-        payload: Joi.object({
-          sessionId: Joi.string().optional(),
-        })
-          .optional()
-          .allow(null),
-      },
-    },
   },
 ];
 
