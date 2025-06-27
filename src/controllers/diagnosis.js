@@ -34,29 +34,57 @@ const DiagnosisController = {
         `⏱️ Step 2 - Phone cleanup: ${Date.now() - phoneStartTime}ms`
       );
 
-      // Create user and diagnosis in a single transaction (OPTIMIZED!)
+      // SUPER OPTIMIZED: Create user and diagnosis in a single transaction
       const transactionStartTime = Date.now();
-      const result = await prisma.$transaction(async (tx) => {
-        // Create user
-        const user = await tx.user.create({
-          data: {
-            nama,
-            noWhatsapp: cleanedPhone,
-            umur: umur ? Number.parseInt(umur) : null,
-            jenisKelamin,
-          },
-        });
+      const result = await prisma.$transaction(
+        async (tx) => {
+          console.log(
+            `  🔄 Transaction started: ${Date.now() - transactionStartTime}ms`
+          );
 
-        // Create diagnosis immediately
-        const diagnosis = await tx.diagnosis.create({
-          data: {
-            userId: user.id,
-            status: "processing",
-          },
-        });
+          // Create user
+          const userCreateStart = Date.now();
+          const user = await tx.user.create({
+            data: {
+              nama,
+              noWhatsapp: cleanedPhone,
+              umur: umur ? Number.parseInt(umur) : null,
+              jenisKelamin,
+            },
+            select: {
+              id: true,
+              nama: true,
+              noWhatsapp: true,
+              umur: true,
+              jenisKelamin: true,
+            },
+          });
+          console.log(`  👤 User created: ${Date.now() - userCreateStart}ms`);
 
-        return { user, diagnosis };
-      });
+          // Create diagnosis
+          const diagnosisCreateStart = Date.now();
+          const diagnosis = await tx.diagnosis.create({
+            data: {
+              userId: user.id,
+              status: "processing",
+            },
+            select: {
+              id: true,
+              userId: true,
+              status: true,
+            },
+          });
+          console.log(
+            `  📋 Diagnosis created: ${Date.now() - diagnosisCreateStart}ms`
+          );
+
+          return { user, diagnosis };
+        },
+        {
+          maxWait: 3000, // 3 seconds max wait
+          timeout: 5000, // 5 seconds timeout
+        }
+      );
       console.log(
         `⏱️ Step 3 - Database transaction: ${
           Date.now() - transactionStartTime
@@ -80,6 +108,16 @@ const DiagnosisController = {
       const totalTime = Date.now() - startTime;
       console.error(`❌ START DIAGNOSIS ERROR after ${totalTime}ms:`, error);
 
+      // Handle specific database errors
+      if (error.code === "P2028") {
+        return h
+          .response({
+            success: false,
+            message: "Database timeout - silakan coba lagi",
+          })
+          .code(500);
+      }
+
       return h
         .response({
           success: false,
@@ -96,6 +134,7 @@ const DiagnosisController = {
     try {
       const { diagnosisId, gejalaInputs } = request.payload;
       console.log(`⏱️ Step 1 - Request received: ${Date.now() - startTime}ms`);
+      console.log(`📊 Processing ${gejalaInputs.length} gejala inputs`);
 
       // Validate inputs first
       if (!diagnosisId || !gejalaInputs || gejalaInputs.length === 0) {
@@ -107,31 +146,44 @@ const DiagnosisController = {
           .code(400);
       }
 
-      // PARALLEL DATA FETCHING (OPTIMIZED!)
+      // SUPER OPTIMIZED: Parallel data fetching with minimal fields
       const dataFetchStartTime = Date.now();
+      const uniqueGejalaIds = [
+        ...new Set(gejalaInputs.map((input) => input.gejalaId)),
+      ];
+
+      console.log(
+        `  🔍 Fetching data for ${uniqueGejalaIds.length} unique gejala...`
+      );
+
       const [diagnosis, existingGejala, rules] = await Promise.all([
-        // Get diagnosis with existing inputs
+        // Get diagnosis with existing inputs - MINIMAL FIELDS
         prisma.diagnosis.findUnique({
           where: { id: diagnosisId },
-          include: {
-            user: true,
+          select: {
+            id: true,
+            userId: true,
+            status: true,
+            user: {
+              select: { id: true, nama: true, noWhatsapp: true },
+            },
             userGejalaInputs: {
               select: { gejalaId: true, cfUser: true, id: true },
             },
           },
         }),
-        // Get valid gejala IDs
+        // Get valid gejala IDs - MINIMAL FIELDS
         prisma.gejala.findMany({
-          where: {
-            id: {
-              in: [...new Set(gejalaInputs.map((input) => input.gejalaId))],
-            },
-          },
+          where: { id: { in: uniqueGejalaIds } },
           select: { id: true },
         }),
-        // Get all rules for calculation
+        // Get rules for calculation - MINIMAL FIELDS
         prisma.rule.findMany({
-          include: {
+          select: {
+            id: true,
+            penyakitId: true,
+            gejalaId: true,
+            cfValue: true,
             penyakit: { select: { id: true, nama: true, kode: true } },
             gejala: { select: { id: true, nama: true, kode: true } },
           },
@@ -150,7 +202,7 @@ const DiagnosisController = {
           .code(404);
       }
 
-      // Process inputs efficiently
+      // OPTIMIZED: Process inputs efficiently with Maps
       const processStartTime = Date.now();
       const validGejalaIds = new Set(existingGejala.map((g) => g.id));
       const existingGejalaMap = new Map(
@@ -186,61 +238,98 @@ const DiagnosisController = {
           });
         }
       }
+
+      console.log(
+        `  📝 New inputs: ${newInputsToAdd.length}, Updates: ${inputsToUpdate.length}`
+      );
       console.log(
         `⏱️ Step 3 - Input processing: ${Date.now() - processStartTime}ms`
       );
 
-      // OPTIMIZED DATABASE OPERATIONS IN TRANSACTION
+      // SUPER OPTIMIZED: Database operations in single transaction
       const dbStartTime = Date.now();
-      const updatedInputs = await prisma.$transaction(async (tx) => {
-        // Batch create new inputs
-        if (newInputsToAdd.length > 0) {
-          await tx.userGejalaInput.createMany({
-            data: newInputsToAdd,
-            skipDuplicates: true,
-          });
-        }
-
-        // Batch update existing inputs
-        if (inputsToUpdate.length > 0) {
-          await Promise.all(
-            inputsToUpdate.map((input) =>
-              tx.userGejalaInput.update({
-                where: { id: input.id },
-                data: { cfUser: input.cfUser },
-              })
-            )
+      const updatedInputs = await prisma.$transaction(
+        async (tx) => {
+          console.log(
+            `  🔄 DB Transaction started: ${Date.now() - dbStartTime}ms`
           );
-        }
 
-        // Get all current inputs for calculation
-        return tx.userGejalaInput.findMany({
-          where: { diagnosisId },
-          select: {
-            gejalaId: true,
-            cfUser: true,
-            gejala: { select: { kode: true, nama: true } },
-          },
-        });
-      });
+          // Batch create new inputs
+          if (newInputsToAdd.length > 0) {
+            const createStart = Date.now();
+            await tx.userGejalaInput.createMany({
+              data: newInputsToAdd,
+              skipDuplicates: true,
+            });
+            console.log(
+              `    ➕ Created ${newInputsToAdd.length} inputs: ${
+                Date.now() - createStart
+              }ms`
+            );
+          }
+
+          // Batch update existing inputs
+          if (inputsToUpdate.length > 0) {
+            const updateStart = Date.now();
+            await Promise.all(
+              inputsToUpdate.map((input) =>
+                tx.userGejalaInput.update({
+                  where: { id: input.id },
+                  data: { cfUser: input.cfUser },
+                })
+              )
+            );
+            console.log(
+              `    🔄 Updated ${inputsToUpdate.length} inputs: ${
+                Date.now() - updateStart
+              }ms`
+            );
+          }
+
+          // Get all current inputs for calculation - MINIMAL FIELDS
+          const fetchStart = Date.now();
+          const result = await tx.userGejalaInput.findMany({
+            where: { diagnosisId },
+            select: {
+              gejalaId: true,
+              cfUser: true,
+              gejala: { select: { kode: true, nama: true } },
+            },
+          });
+          console.log(
+            `    📊 Fetched ${result.length} inputs: ${
+              Date.now() - fetchStart
+            }ms`
+          );
+
+          return result;
+        },
+        {
+          maxWait: 3000, // 3 seconds max wait
+          timeout: 8000, // 8 seconds timeout
+        }
+      );
       console.log(
         `⏱️ Step 4 - Database operations: ${Date.now() - dbStartTime}ms`
       );
 
-      // OPTIMIZED CF CALCULATION
+      // OPTIMIZED: CF calculation
       const cfStartTime = Date.now();
       const inputsForCalculation = updatedInputs.map((input) => ({
         gejalaId: input.gejalaId,
         cfUser: input.cfUser,
       }));
 
+      console.log(
+        `  🧮 Calculating CF for ${inputsForCalculation.length} inputs against ${rules.length} rules`
+      );
       const calculationResult = await CertaintyFactorService.calculateDiagnosis(
         inputsForCalculation,
         rules
       );
       console.log(`⏱️ Step 5 - CF Calculation: ${Date.now() - cfStartTime}ms`);
 
-      // FINAL UPDATE IN SINGLE OPERATION
+      // OPTIMIZED: Final update in single operation
       const updateStartTime = Date.now();
       let finalDiagnosis;
 
@@ -248,6 +337,9 @@ const DiagnosisController = {
         calculationResult.bestDiagnosis &&
         calculationResult.bestDiagnosis.cfValue > 0
       ) {
+        console.log(
+          `  🎯 Best diagnosis found: ${calculationResult.bestDiagnosis.percentage}%`
+        );
         finalDiagnosis = await prisma.diagnosis.update({
           where: { id: diagnosisId },
           data: {
@@ -267,6 +359,7 @@ const DiagnosisController = {
           },
         });
       } else {
+        console.log(`  ❌ No diagnosis found`);
         finalDiagnosis = await prisma.diagnosis.update({
           where: { id: diagnosisId },
           data: { status: "completed" },
@@ -314,7 +407,7 @@ const DiagnosisController = {
         return h
           .response({
             success: false,
-            message: "Transaksi database timeout. Silakan coba lagi.",
+            message: "Database timeout. Silakan coba lagi.",
           })
           .code(500);
       }
@@ -333,7 +426,7 @@ const DiagnosisController = {
       const startTime = Date.now();
       console.log("=== GET GEJALA LIST ===");
 
-      // Optimized query - only get necessary fields
+      // SUPER OPTIMIZED: Only get necessary fields
       const gejalaList = await prisma.gejala.findMany({
         select: {
           id: true,

@@ -1,23 +1,27 @@
 const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient({
-  log:
-    process.env.NODE_ENV === "production"
-      ? ["error"]
-      : ["query", "info", "warn", "error"],
+  log: ["query", "info", "warn", "error"],
   datasources: {
     db: {
       url: process.env.DATABASE_URL,
     },
   },
-  // OPTIMIZED transaction settings
+  // Add transaction timeout configuration
   transactionOptions: {
-    maxWait: 10000, // 10 seconds
-    timeout: 30000, // 30 seconds
+    maxWait: 3000, // Reduce to 3 seconds
+    timeout: 8000, // Reduce to 8 seconds
+  },
+  // Add connection pool settings
+  __internal: {
+    engine: {
+      connectTimeout: 5000, // 5 seconds connection timeout
+      pool_timeout: 5000, // 5 seconds pool timeout
+    },
   },
 });
 
-// Add connection pooling optimization
+// Test connection on startup
 prisma
   .$connect()
   .then(() => {
@@ -33,13 +37,11 @@ process.on("beforeExit", async () => {
 });
 
 process.on("SIGINT", async () => {
-  console.log("🔄 Gracefully shutting down database connection...");
   await prisma.$disconnect();
   process.exit(0);
 });
 
 process.on("SIGTERM", async () => {
-  console.log("🔄 Gracefully shutting down database connection...");
   await prisma.$disconnect();
   process.exit(0);
 });
