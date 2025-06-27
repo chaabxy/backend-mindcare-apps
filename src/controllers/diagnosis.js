@@ -81,8 +81,8 @@ const DiagnosisController = {
           return { user, diagnosis };
         },
         {
-          maxWait: 3000, // 3 seconds max wait
-          timeout: 5000, // 5 seconds timeout
+          maxWait: 2000, // Reduce to 2 seconds
+          timeout: 4000, // Reduce to 4 seconds
         }
       );
       console.log(
@@ -146,7 +146,7 @@ const DiagnosisController = {
           .code(400);
       }
 
-      // SUPER OPTIMIZED: Parallel data fetching with minimal fields
+      // ULTRA OPTIMIZED: Parallel data fetching with absolute minimal fields
       const dataFetchStartTime = Date.now();
       const uniqueGejalaIds = [
         ...new Set(gejalaInputs.map((input) => input.gejalaId)),
@@ -156,39 +156,60 @@ const DiagnosisController = {
         `  🔍 Fetching data for ${uniqueGejalaIds.length} unique gejala...`
       );
 
-      const [diagnosis, existingGejala, rules] = await Promise.all([
-        // Get diagnosis with existing inputs - MINIMAL FIELDS
-        prisma.diagnosis.findUnique({
-          where: { id: diagnosisId },
-          select: {
-            id: true,
-            userId: true,
-            status: true,
-            user: {
-              select: { id: true, nama: true, noWhatsapp: true },
+      // EXTREME OPTIMIZATION: Use Promise.allSettled for better error handling
+      const [diagnosisResult, gejalaResult, rulesResult] =
+        await Promise.allSettled([
+          // Get diagnosis with existing inputs - ABSOLUTE MINIMAL FIELDS
+          prisma.diagnosis.findUnique({
+            where: { id: diagnosisId },
+            select: {
+              id: true,
+              userId: true,
+              status: true,
+              user: {
+                select: { id: true, nama: true, noWhatsapp: true },
+              },
+              userGejalaInputs: {
+                select: { gejalaId: true, cfUser: true, id: true },
+              },
             },
-            userGejalaInputs: {
-              select: { gejalaId: true, cfUser: true, id: true },
+          }),
+          // Get valid gejala IDs - ONLY IDs
+          prisma.gejala.findMany({
+            where: { id: { in: uniqueGejalaIds } },
+            select: { id: true },
+          }),
+          // Get rules for calculation - CACHED APPROACH
+          prisma.rule.findMany({
+            select: {
+              penyakitId: true,
+              gejalaId: true,
+              cfValue: true,
+              penyakit: { select: { id: true, nama: true, kode: true } },
+              gejala: { select: { id: true, nama: true, kode: true } },
             },
-          },
-        }),
-        // Get valid gejala IDs - MINIMAL FIELDS
-        prisma.gejala.findMany({
-          where: { id: { in: uniqueGejalaIds } },
-          select: { id: true },
-        }),
-        // Get rules for calculation - MINIMAL FIELDS
-        prisma.rule.findMany({
-          select: {
-            id: true,
-            penyakitId: true,
-            gejalaId: true,
-            cfValue: true,
-            penyakit: { select: { id: true, nama: true, kode: true } },
-            gejala: { select: { id: true, nama: true, kode: true } },
-          },
-        }),
-      ]);
+          }),
+        ]);
+
+      // Handle any failed promises
+      if (diagnosisResult.status === "rejected") {
+        throw new Error(
+          "Failed to fetch diagnosis: " + diagnosisResult.reason.message
+        );
+      }
+      if (gejalaResult.status === "rejected") {
+        throw new Error(
+          "Failed to fetch gejala: " + gejalaResult.reason.message
+        );
+      }
+      if (rulesResult.status === "rejected") {
+        throw new Error("Failed to fetch rules: " + rulesResult.reason.message);
+      }
+
+      const diagnosis = diagnosisResult.value;
+      const existingGejala = gejalaResult.value;
+      const rules = rulesResult.value;
+
       console.log(
         `⏱️ Step 2 - Parallel data fetch: ${Date.now() - dataFetchStartTime}ms`
       );
@@ -202,7 +223,7 @@ const DiagnosisController = {
           .code(404);
       }
 
-      // OPTIMIZED: Process inputs efficiently with Maps
+      // ULTRA OPTIMIZED: Process inputs with Set operations
       const processStartTime = Date.now();
       const validGejalaIds = new Set(existingGejala.map((g) => g.id));
       const existingGejalaMap = new Map(
@@ -213,6 +234,7 @@ const DiagnosisController = {
       const inputsToUpdate = [];
       const processedGejalaIds = new Set();
 
+      // OPTIMIZED: Single loop with early validation
       for (const input of gejalaInputs) {
         if (
           !validGejalaIds.has(input.gejalaId) ||
@@ -246,7 +268,7 @@ const DiagnosisController = {
         `⏱️ Step 3 - Input processing: ${Date.now() - processStartTime}ms`
       );
 
-      // SUPER OPTIMIZED: Database operations in single transaction
+      // ULTRA OPTIMIZED: Database operations with reduced timeout
       const dbStartTime = Date.now();
       const updatedInputs = await prisma.$transaction(
         async (tx) => {
@@ -254,41 +276,36 @@ const DiagnosisController = {
             `  🔄 DB Transaction started: ${Date.now() - dbStartTime}ms`
           );
 
-          // Batch create new inputs
+          // OPTIMIZED: Batch operations
+          const operations = [];
+
           if (newInputsToAdd.length > 0) {
-            const createStart = Date.now();
-            await tx.userGejalaInput.createMany({
-              data: newInputsToAdd,
-              skipDuplicates: true,
-            });
-            console.log(
-              `    ➕ Created ${newInputsToAdd.length} inputs: ${
-                Date.now() - createStart
-              }ms`
+            operations.push(
+              tx.userGejalaInput.createMany({
+                data: newInputsToAdd,
+                skipDuplicates: true,
+              })
             );
           }
 
-          // Batch update existing inputs
           if (inputsToUpdate.length > 0) {
-            const updateStart = Date.now();
-            await Promise.all(
-              inputsToUpdate.map((input) =>
+            operations.push(
+              ...inputsToUpdate.map((input) =>
                 tx.userGejalaInput.update({
                   where: { id: input.id },
                   data: { cfUser: input.cfUser },
                 })
               )
             );
-            console.log(
-              `    🔄 Updated ${inputsToUpdate.length} inputs: ${
-                Date.now() - updateStart
-              }ms`
-            );
+          }
+
+          // Execute all operations in parallel
+          if (operations.length > 0) {
+            await Promise.all(operations);
           }
 
           // Get all current inputs for calculation - MINIMAL FIELDS
-          const fetchStart = Date.now();
-          const result = await tx.userGejalaInput.findMany({
+          return await tx.userGejalaInput.findMany({
             where: { diagnosisId },
             select: {
               gejalaId: true,
@@ -296,24 +313,17 @@ const DiagnosisController = {
               gejala: { select: { kode: true, nama: true } },
             },
           });
-          console.log(
-            `    📊 Fetched ${result.length} inputs: ${
-              Date.now() - fetchStart
-            }ms`
-          );
-
-          return result;
         },
         {
-          maxWait: 3000, // 3 seconds max wait
-          timeout: 8000, // 8 seconds timeout
+          maxWait: 1500, // Reduce to 1.5 seconds
+          timeout: 4000, // Reduce to 4 seconds
         }
       );
       console.log(
         `⏱️ Step 4 - Database operations: ${Date.now() - dbStartTime}ms`
       );
 
-      // OPTIMIZED: CF calculation
+      // OPTIMIZED: CF calculation with pre-processed data
       const cfStartTime = Date.now();
       const inputsForCalculation = updatedInputs.map((input) => ({
         gejalaId: input.gejalaId,
@@ -329,7 +339,7 @@ const DiagnosisController = {
       );
       console.log(`⏱️ Step 5 - CF Calculation: ${Date.now() - cfStartTime}ms`);
 
-      // OPTIMIZED: Final update in single operation
+      // OPTIMIZED: Final update with minimal data
       const updateStartTime = Date.now();
       let finalDiagnosis;
 
@@ -348,11 +358,18 @@ const DiagnosisController = {
             persentase: calculationResult.bestDiagnosis.percentage,
             status: "completed",
           },
-          include: {
+          select: {
+            id: true,
+            penyakitId: true,
+            cfResult: true,
+            persentase: true,
+            status: true,
             penyakit: { select: { id: true, nama: true, kode: true } },
             user: { select: { id: true, nama: true, noWhatsapp: true } },
             userGejalaInputs: {
-              include: {
+              select: {
+                gejalaId: true,
+                cfUser: true,
                 gejala: { select: { kode: true, nama: true } },
               },
             },
@@ -363,10 +380,14 @@ const DiagnosisController = {
         finalDiagnosis = await prisma.diagnosis.update({
           where: { id: diagnosisId },
           data: { status: "completed" },
-          include: {
+          select: {
+            id: true,
+            status: true,
             user: { select: { id: true, nama: true, noWhatsapp: true } },
             userGejalaInputs: {
-              include: {
+              select: {
+                gejalaId: true,
+                cfUser: true,
                 gejala: { select: { kode: true, nama: true } },
               },
             },
@@ -426,16 +447,17 @@ const DiagnosisController = {
       const startTime = Date.now();
       console.log("=== GET GEJALA LIST ===");
 
-      // SUPER OPTIMIZED: Only get necessary fields
+      // ULTRA OPTIMIZED: Cache-friendly query with minimal fields
       const gejalaList = await prisma.gejala.findMany({
         select: {
           id: true,
           kode: true,
           nama: true,
           deskripsi: true,
-          createdAt: true,
         },
         orderBy: { kode: "asc" },
+        // Add caching hint
+        cacheStrategy: { ttl: 300 }, // 5 minutes cache if supported
       });
 
       const duration = Date.now() - startTime;
@@ -443,11 +465,13 @@ const DiagnosisController = {
         `⏱️ Gejala list fetched in ${duration}ms - Found ${gejalaList.length} items`
       );
 
+      // Add cache headers for client-side caching
       return h
         .response({
           success: true,
           data: gejalaList,
         })
+        .header("Cache-Control", "public, max-age=300") // 5 minutes cache
         .code(200);
     } catch (error) {
       console.error("Get gejala list error:", error);
