@@ -6,6 +6,18 @@ const DashboardController = {
       console.log("=== DASHBOARD STATS REQUEST ===");
       console.log("Request received at:", new Date().toISOString());
 
+      // Optional: Verify session if token provided
+      const sessionToken =
+        request.headers["x-session-token"] || request.query.sessionToken;
+
+      if (sessionToken) {
+        console.log(
+          "Session token provided:",
+          sessionToken.substring(0, 10) + "..."
+        );
+        // You can add session verification here if needed
+      }
+
       const totalUsers = await prisma.user.count();
       console.log("Total users:", totalUsers);
 
@@ -34,7 +46,7 @@ const DashboardController = {
           id: true,
         },
       });
-      console.log("Diagnosis by penyakit:", diagnosisByPenyakit.length);
+      console.log("Diagnosis by penyakit groups:", diagnosisByPenyakit.length);
 
       const penyakitStats = await Promise.all(
         diagnosisByPenyakit.map(async (item) => {
@@ -81,9 +93,10 @@ const DashboardController = {
         diagnosisThisMonth,
         penyakitStats,
         recentDiagnoses,
+        timestamp: new Date().toISOString(),
       };
 
-      console.log("Dashboard stats response prepared successfully");
+      console.log("✅ Dashboard stats response prepared successfully");
 
       return h
         .response({
@@ -123,6 +136,38 @@ const DashboardController = {
           success: false,
           message: "Gagal mengambil data dashboard: " + error.message,
           error: "INTERNAL_ERROR",
+        })
+        .code(500);
+    }
+  },
+
+  // Health check endpoint
+  async healthCheck(request, h) {
+    try {
+      // Test database connection
+      await prisma.$queryRaw`SELECT 1`;
+
+      return h
+        .response({
+          success: true,
+          data: {
+            status: "healthy",
+            database: "connected",
+            timestamp: new Date().toISOString(),
+          },
+        })
+        .code(200);
+    } catch (error) {
+      console.error("Health check failed:", error);
+      return h
+        .response({
+          success: false,
+          data: {
+            status: "unhealthy",
+            database: "disconnected",
+            error: error.message,
+            timestamp: new Date().toISOString(),
+          },
         })
         .code(500);
     }
