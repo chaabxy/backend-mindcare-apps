@@ -457,7 +457,7 @@ const DiagnosisController = {
         },
         orderBy: { kode: "asc" },
         // Add caching hint
-        cacheStrategy: { ttl: 300 }, // 5 minutes cache if supported
+        // cacheStrategy: { ttl: 300 }, // 5 minutes cache if supported
       });
 
       const duration = Date.now() - startTime;
