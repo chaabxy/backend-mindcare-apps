@@ -1,28 +1,24 @@
 const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient({
-  log: ["query", "info", "warn", "error"],
+  log:
+    process.env.NODE_ENV === "development"
+      ? ["query", "info", "warn", "error"]
+      : ["error"],
   datasources: {
     db: {
       url: process.env.DATABASE_URL,
     },
   },
-  // REVERT: Use safer transaction timeout
+  // Production-friendly settings
   transactionOptions: {
-    maxWait: 10000, // Back to 10 seconds
-    timeout: 20000, // Back to 20 seconds
-  },
-  // REVERT: Use safer connection settings
-  __internal: {
-    engine: {
-      connectTimeout: 10000, // Back to 10 seconds
-      pool_timeout: 10000, // Back to 10 seconds
-    },
+    maxWait: 20000, // 20 seconds
+    timeout: 30000, // 30 seconds
   },
 });
 
 // Test connection on startup with retry
-const connectWithRetry = async (retries = 3) => {
+const connectWithRetry = async (retries = 5) => {
   for (let i = 0; i < retries; i++) {
     try {
       await prisma.$connect();
@@ -37,8 +33,10 @@ const connectWithRetry = async (retries = 3) => {
         console.error("❌ All database connection attempts failed");
         throw error;
       }
-      // Wait before retry
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Wait before retry (exponential backoff)
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.pow(2, i) * 1000)
+      );
     }
   }
 };
@@ -46,6 +44,7 @@ const connectWithRetry = async (retries = 3) => {
 // Initialize connection
 connectWithRetry().catch((error) => {
   console.error("❌ Database connection failed:", error);
+  process.exit(1);
 });
 
 // Handle graceful shutdown
