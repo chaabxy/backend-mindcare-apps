@@ -1,42 +1,44 @@
-const bcrypt = require("bcrypt")
-const jwt = require("jsonwebtoken")
-const prisma = require("../config/database")
+const bcrypt = require("bcrypt");
+const prisma = require("../config/database");
 
 const AuthController = {
   async login(request, h) {
     try {
-      const { username, password } = request.payload
+      const { username, password } = request.payload;
+
+      console.log("Login attempt for username:", username);
 
       const admin = await prisma.admin.findUnique({
         where: { username },
-      })
+      });
 
       if (!admin) {
+        console.log("Admin not found for username:", username);
         return h
           .response({
             success: false,
             message: "Username atau password salah",
           })
-          .code(401)
+          .code(401);
       }
 
-      const isValidPassword = await bcrypt.compare(password, admin.password)
+      const isValidPassword = await bcrypt.compare(password, admin.password);
       if (!isValidPassword) {
+        console.log("Invalid password for username:", username);
         return h
           .response({
             success: false,
             message: "Username atau password salah",
           })
-          .code(401)
+          .code(401);
       }
 
-      const token = jwt.sign({ id: admin.id, username: admin.username }, process.env.JWT_SECRET, { expiresIn: "24h" })
+      console.log("Login successful for username:", username);
 
       return h
         .response({
           success: true,
           data: {
-            token,
             admin: {
               id: admin.id,
               username: admin.username,
@@ -44,66 +46,40 @@ const AuthController = {
             },
           },
         })
-        .code(200)
+        .code(200);
     } catch (error) {
-      console.error("Login error:", error)
+      console.error("Login error:", error);
       return h
         .response({
           success: false,
-          message: "Gagal login",
+          message: "Gagal login: " + error.message,
         })
-        .code(500)
+        .code(500);
     }
   },
 
   async verifyToken(request, h) {
     try {
-      const token = request.headers.authorization?.replace("Bearer ", "")
-
-      if (!token) {
-        return h
-          .response({
-            success: false,
-            message: "Token tidak ditemukan",
-          })
-          .code(401)
-      }
-
-      const decoded = jwt.verify(token, process.env.JWT_SECRET)
-      const admin = await prisma.admin.findUnique({
-        where: { id: decoded.id },
-      })
-
-      if (!admin) {
-        return h
-          .response({
-            success: false,
-            message: "Admin tidak ditemukan",
-          })
-          .code(401)
-      }
+      // Since we removed JWT, we'll just return a simple success response
+      // In a real application, you might want to implement session-based auth
+      // or use a different authentication method
 
       return h
         .response({
           success: true,
-          data: {
-            admin: {
-              id: admin.id,
-              username: admin.username,
-              name: admin.name,
-            },
-          },
+          message: "Authentication not required",
         })
-        .code(200)
+        .code(200);
     } catch (error) {
+      console.error("Verify token error:", error);
       return h
         .response({
           success: false,
-          message: "Token tidak valid",
+          message: "Gagal verifikasi",
         })
-        .code(401)
+        .code(500);
     }
   },
-}
+};
 
-module.exports = AuthController
+module.exports = AuthController;
