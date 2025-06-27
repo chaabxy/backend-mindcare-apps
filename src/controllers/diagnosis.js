@@ -1,7 +1,6 @@
 const prisma = require("../config/database");
 const CertaintyFactorService = require("../services/certainty-factor");
 
-
 const DiagnosisController = {
   async startDiagnosis(request, h) {
     try {
@@ -155,8 +154,6 @@ const DiagnosisController = {
         },
         select: {
           id: true,
-          kode: true,
-          nama: true,
         },
       });
 
@@ -329,6 +326,8 @@ const DiagnosisController = {
           },
         });
 
+        // COMMENT OUT atau HAPUS bagian ini:
+        /*
         // Send WhatsApp notification to user
         try {
           console.log("Sending WhatsApp notification to user...");
@@ -343,6 +342,7 @@ const DiagnosisController = {
           console.error("WhatsApp notification failed:", whatsappError);
           // Don't fail the diagnosis if WhatsApp fails
         }
+        */
       } else {
         console.log("No significant diagnosis found, marking as completed");
 
@@ -362,6 +362,8 @@ const DiagnosisController = {
           },
         });
 
+        // COMMENT OUT atau HAPUS bagian ini:
+        /*
         // Send WhatsApp notification for no diagnosis
         try {
           console.log("Sending WhatsApp notification for no diagnosis...");
@@ -373,6 +375,7 @@ const DiagnosisController = {
         } catch (whatsappError) {
           console.error("WhatsApp notification failed:", whatsappError);
         }
+        */
       }
 
       console.log("=== FINAL DIAGNOSIS ===");
