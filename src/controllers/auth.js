@@ -1,5 +1,5 @@
 const bcrypt = require("bcrypt");
-const prisma = require("../config/database");
+const { prisma } = require("../config/database");
 
 // Simple in-memory session store (untuk development)
 // Dalam production sebaiknya gunakan Redis atau database
