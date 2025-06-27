@@ -1,14 +1,14 @@
 const prisma = require("../config/database");
 const CertaintyFactorService = require("../services/certainty-factor");
 
+
 const DiagnosisController = {
   async startDiagnosis(request, h) {
-    const startTime = Date.now();
-    console.log("=== START DIAGNOSIS ===", new Date().toISOString());
-
     try {
       const { nama, noWhatsapp, umur, jenisKelamin } = request.payload;
-      console.log(`⏱️ Step 1 - Request received: ${Date.now() - startTime}ms`);
+
+      console.log("=== START DIAGNOSIS REQUEST ===");
+      console.log("Input data:", { nama, noWhatsapp, umur, jenisKelamin });
 
       // Validate required fields
       if (!nama || !noWhatsapp) {
@@ -21,7 +21,6 @@ const DiagnosisController = {
       }
 
       // Clean phone number format
-      const phoneStartTime = Date.now();
       let cleanedPhone = noWhatsapp.replace(/\s+/g, "").replace(/[^\d+]/g, "");
       if (cleanedPhone.startsWith("0")) {
         cleanedPhone = "+62" + cleanedPhone.substring(1);
@@ -30,93 +29,47 @@ const DiagnosisController = {
       } else if (!cleanedPhone.startsWith("+62")) {
         cleanedPhone = "+62" + cleanedPhone;
       }
-      console.log(
-        `⏱️ Step 2 - Phone cleanup: ${Date.now() - phoneStartTime}ms`
-      );
 
-      // SAFER: Create user and diagnosis with normal timeout
-      const transactionStartTime = Date.now();
-      const result = await prisma.$transaction(
-        async (tx) => {
-          console.log(
-            `  🔄 Transaction started: ${Date.now() - transactionStartTime}ms`
-          );
+      console.log("Cleaned phone number:", cleanedPhone);
 
-          // Create user
-          const userCreateStart = Date.now();
-          const user = await tx.user.create({
-            data: {
-              nama,
-              noWhatsapp: cleanedPhone,
-              umur: umur ? Number.parseInt(umur) : null,
-              jenisKelamin,
-            },
-            select: {
-              id: true,
-              nama: true,
-              noWhatsapp: true,
-              umur: true,
-              jenisKelamin: true,
-            },
-          });
-          console.log(`  👤 User created: ${Date.now() - userCreateStart}ms`);
-
-          // Create diagnosis
-          const diagnosisCreateStart = Date.now();
-          const diagnosis = await tx.diagnosis.create({
-            data: {
-              userId: user.id,
-              status: "processing",
-            },
-            select: {
-              id: true,
-              userId: true,
-              status: true,
-            },
-          });
-          console.log(
-            `  📋 Diagnosis created: ${Date.now() - diagnosisCreateStart}ms`
-          );
-
-          return { user, diagnosis };
+      // Always create new user for each diagnosis session
+      // This ensures we don't accidentally delete existing users
+      console.log("Creating new user for this diagnosis session...");
+      const user = await prisma.user.create({
+        data: {
+          nama,
+          noWhatsapp: cleanedPhone,
+          umur: umur ? Number.parseInt(umur) : null,
+          jenisKelamin,
         },
-        {
-          maxWait: 8000, // Safer timeout
-          timeout: 15000, // Safer timeout
-        }
-      );
-      console.log(
-        `⏱️ Step 3 - Database transaction: ${
-          Date.now() - transactionStartTime
-        }ms`
-      );
+      });
+      console.log("New user created:", user.id);
 
-      const totalTime = Date.now() - startTime;
-      console.log(`🎯 START DIAGNOSIS TOTAL: ${totalTime}ms`);
+      // Create new diagnosis
+      console.log("Creating new diagnosis...");
+      const diagnosis = await prisma.diagnosis.create({
+        data: {
+          userId: user.id,
+          status: "processing",
+        },
+      });
+
+      console.log("Diagnosis created:", diagnosis.id);
 
       return h
         .response({
           success: true,
           data: {
-            diagnosisId: result.diagnosis.id,
-            userId: result.user.id,
-            user: result.user,
+            diagnosisId: diagnosis.id,
+            userId: user.id,
+            user: user,
           },
         })
         .code(201);
     } catch (error) {
-      const totalTime = Date.now() - startTime;
-      console.error(`❌ START DIAGNOSIS ERROR after ${totalTime}ms:`, error);
-
-      // Handle specific database errors
-      if (error.code === "P2028") {
-        return h
-          .response({
-            success: false,
-            message: "Database timeout - silakan coba lagi",
-          })
-          .code(500);
-      }
+      console.error("=== START DIAGNOSIS ERROR ===");
+      console.error("Error:", error);
+      console.error("Stack:", error.stack);
 
       return h
         .response({
@@ -128,15 +81,15 @@ const DiagnosisController = {
   },
 
   async submitSymptoms(request, h) {
-    const startTime = Date.now();
-    console.log("=== SUBMIT SYMPTOMS ===", new Date().toISOString());
-
     try {
       const { diagnosisId, gejalaInputs } = request.payload;
-      console.log(`⏱️ Step 1 - Request received: ${Date.now() - startTime}ms`);
-      console.log(`📊 Processing ${gejalaInputs.length} gejala inputs`);
 
-      // Validate inputs first
+      console.log("=== SUBMIT SYMPTOMS REQUEST ===");
+      console.log("Diagnosis ID:", diagnosisId);
+      console.log("Gejala Inputs Count:", gejalaInputs.length);
+      console.log("Gejala Inputs:", JSON.stringify(gejalaInputs, null, 2));
+
+      // Validate inputs
       if (!diagnosisId || !gejalaInputs || gejalaInputs.length === 0) {
         return h
           .response({
@@ -146,75 +99,21 @@ const DiagnosisController = {
           .code(400);
       }
 
-      // SAFER: Parallel data fetching with normal timeout
-      const dataFetchStartTime = Date.now();
-      const uniqueGejalaIds = [
-        ...new Set(gejalaInputs.map((input) => input.gejalaId)),
-      ];
-
-      console.log(
-        `  🔍 Fetching data for ${uniqueGejalaIds.length} unique gejala...`
-      );
-
-      // Use Promise.allSettled for better error handling
-      const [diagnosisResult, gejalaResult, rulesResult] =
-        await Promise.allSettled([
-          // Get diagnosis with existing inputs
-          prisma.diagnosis.findUnique({
-            where: { id: diagnosisId },
-            select: {
-              id: true,
-              userId: true,
-              status: true,
-              user: {
-                select: { id: true, nama: true, noWhatsapp: true },
-              },
-              userGejalaInputs: {
-                select: { gejalaId: true, cfUser: true, id: true },
-              },
+      // Validate diagnosis exists and get user info
+      const diagnosis = await prisma.diagnosis.findUnique({
+        where: { id: diagnosisId },
+        include: {
+          user: true,
+          userGejalaInputs: {
+            include: {
+              gejala: true,
             },
-          }),
-          // Get valid gejala IDs
-          prisma.gejala.findMany({
-            where: { id: { in: uniqueGejalaIds } },
-            select: { id: true },
-          }),
-          // Get rules for calculation
-          prisma.rule.findMany({
-            select: {
-              penyakitId: true,
-              gejalaId: true,
-              cfValue: true,
-              penyakit: { select: { id: true, nama: true, kode: true } },
-              gejala: { select: { id: true, nama: true, kode: true } },
-            },
-          }),
-        ]);
-
-      // Handle any failed promises
-      if (diagnosisResult.status === "rejected") {
-        throw new Error(
-          "Failed to fetch diagnosis: " + diagnosisResult.reason.message
-        );
-      }
-      if (gejalaResult.status === "rejected") {
-        throw new Error(
-          "Failed to fetch gejala: " + gejalaResult.reason.message
-        );
-      }
-      if (rulesResult.status === "rejected") {
-        throw new Error("Failed to fetch rules: " + rulesResult.reason.message);
-      }
-
-      const diagnosis = diagnosisResult.value;
-      const existingGejala = gejalaResult.value;
-      const rules = rulesResult.value;
-
-      console.log(
-        `⏱️ Step 2 - Parallel data fetch: ${Date.now() - dataFetchStartTime}ms`
-      );
+          },
+        },
+      });
 
       if (!diagnosis) {
+        console.log("Diagnosis not found:", diagnosisId);
         return h
           .response({
             success: false,
@@ -223,133 +122,194 @@ const DiagnosisController = {
           .code(404);
       }
 
-      // Process inputs with Set operations
-      const processStartTime = Date.now();
-      const validGejalaIds = new Set(existingGejala.map((g) => g.id));
-      const existingGejalaMap = new Map(
-        diagnosis.userGejalaInputs.map((input) => [input.gejalaId, input])
+      console.log("Found diagnosis for user:", diagnosis.user.nama);
+      console.log("Existing gejala inputs:", diagnosis.userGejalaInputs.length);
+
+      // Check if diagnosis is already completed
+      if (diagnosis.status === "completed") {
+        console.log("Diagnosis already completed");
+        return h
+          .response({
+            success: false,
+            message: "Diagnosis sudah selesai",
+          })
+          .code(400);
+      }
+
+      // Get existing gejala inputs for this diagnosis
+      const existingGejalaIds = new Set(
+        diagnosis.userGejalaInputs.map((input) => input.gejalaId)
+      );
+      console.log("Existing gejala IDs:", Array.from(existingGejalaIds));
+
+      // Validate all new gejala exist
+      console.log("Validating new gejala...");
+      const newGejalaIds = [
+        ...new Set(gejalaInputs.map((input) => input.gejalaId)),
+      ]; // Remove duplicates
+      const existingGejala = await prisma.gejala.findMany({
+        where: {
+          id: {
+            in: newGejalaIds,
+          },
+        },
+        select: {
+          id: true,
+          kode: true,
+          nama: true,
+        },
+      });
+
+      console.log(
+        "Found existing gejala:",
+        existingGejala.length,
+        "out of",
+        newGejalaIds.length
       );
 
+      if (existingGejala.length === 0) {
+        return h
+          .response({
+            success: false,
+            message: "Tidak ada gejala yang valid ditemukan",
+          })
+          .code(400);
+      }
+
+      const validGejalaIds = new Set(existingGejala.map((g) => g.id));
+
+      // Prepare new inputs (only add new ones, don't duplicate existing)
       const newInputsToAdd = [];
-      const inputsToUpdate = [];
+      const updatedInputs = [];
       const processedGejalaIds = new Set();
 
-      // Single loop with early validation
       for (const input of gejalaInputs) {
-        if (
-          !validGejalaIds.has(input.gejalaId) ||
-          processedGejalaIds.has(input.gejalaId)
-        ) {
+        // Skip if gejala doesn't exist
+        if (!validGejalaIds.has(input.gejalaId)) {
+          console.log("Skipping invalid gejala:", input.gejalaId);
+          continue;
+        }
+
+        // Skip if already processed in this request (remove duplicates in request)
+        if (processedGejalaIds.has(input.gejalaId)) {
+          console.log("Skipping duplicate gejala in request:", input.gejalaId);
           continue;
         }
 
         processedGejalaIds.add(input.gejalaId);
-        const cfUser = Number.parseFloat(input.cfUser);
 
-        if (existingGejalaMap.has(input.gejalaId)) {
-          const existingInput = existingGejalaMap.get(input.gejalaId);
-          inputsToUpdate.push({
-            id: existingInput.id,
-            cfUser,
+        // Check if this gejala already exists for this diagnosis
+        if (existingGejalaIds.has(input.gejalaId)) {
+          // Update existing input
+          console.log("Updating existing gejala input:", input.gejalaId);
+          updatedInputs.push({
+            gejalaId: input.gejalaId,
+            cfUser: Number.parseFloat(input.cfUser),
           });
         } else {
+          // Add new input
+          console.log("Adding new gejala input:", input.gejalaId);
           newInputsToAdd.push({
             diagnosisId,
             gejalaId: input.gejalaId,
-            cfUser,
+            cfUser: Number.parseFloat(input.cfUser),
           });
         }
       }
 
-      console.log(
-        `  📝 New inputs: ${newInputsToAdd.length}, Updates: ${inputsToUpdate.length}`
-      );
-      console.log(
-        `⏱️ Step 3 - Input processing: ${Date.now() - processStartTime}ms`
-      );
+      console.log("New inputs to add:", newInputsToAdd.length);
+      console.log("Existing inputs to update:", updatedInputs.length);
 
-      // SAFER: Database operations with normal timeout
-      const dbStartTime = Date.now();
-      const updatedInputs = await prisma.$transaction(
-        async (tx) => {
-          console.log(
-            `  🔄 DB Transaction started: ${Date.now() - dbStartTime}ms`
-          );
+      // Add new inputs if any
+      if (newInputsToAdd.length > 0) {
+        console.log("Adding new gejala inputs...");
+        const createResult = await prisma.userGejalaInput.createMany({
+          data: newInputsToAdd,
+          skipDuplicates: true,
+        });
+        console.log("Created new gejala inputs:", createResult.count);
+      }
 
-          // Batch operations
-          const operations = [];
+      // Update existing inputs if any
+      for (const updateInput of updatedInputs) {
+        console.log("Updating gejala input:", updateInput.gejalaId);
+        await prisma.userGejalaInput.updateMany({
+          where: {
+            diagnosisId: diagnosisId,
+            gejalaId: updateInput.gejalaId,
+          },
+          data: {
+            cfUser: updateInput.cfUser,
+          },
+        });
+      }
 
-          if (newInputsToAdd.length > 0) {
-            operations.push(
-              tx.userGejalaInput.createMany({
-                data: newInputsToAdd,
-                skipDuplicates: true,
-              })
-            );
-          }
-
-          if (inputsToUpdate.length > 0) {
-            operations.push(
-              ...inputsToUpdate.map((input) =>
-                tx.userGejalaInput.update({
-                  where: { id: input.id },
-                  data: { cfUser: input.cfUser },
-                })
-              )
-            );
-          }
-
-          // Execute all operations in parallel
-          if (operations.length > 0) {
-            await Promise.all(operations);
-          }
-
-          // Get all current inputs for calculation
-          return await tx.userGejalaInput.findMany({
-            where: { diagnosisId },
-            select: {
-              gejalaId: true,
-              cfUser: true,
-              gejala: { select: { kode: true, nama: true } },
-            },
-          });
+      // Get all current inputs for this diagnosis (existing + new)
+      const allCurrentInputs = await prisma.userGejalaInput.findMany({
+        where: { diagnosisId },
+        include: {
+          gejala: true,
         },
-        {
-          maxWait: 8000, // Safer timeout
-          timeout: 15000, // Safer timeout
-        }
-      );
+      });
+
       console.log(
-        `⏱️ Step 4 - Database operations: ${Date.now() - dbStartTime}ms`
+        "Total current inputs for diagnosis:",
+        allCurrentInputs.length
       );
 
-      // CF calculation
-      const cfStartTime = Date.now();
-      const inputsForCalculation = updatedInputs.map((input) => ({
+      // Get all rules for calculation
+      const rules = await prisma.rule.findMany({
+        include: {
+          penyakit: true,
+          gejala: true,
+        },
+      });
+
+      console.log("Found", rules.length, "rules for calculation");
+
+      // Prepare data for CF calculation
+      const inputsForCalculation = allCurrentInputs.map((input) => ({
         gejalaId: input.gejalaId,
         cfUser: input.cfUser,
       }));
 
       console.log(
-        `  🧮 Calculating CF for ${inputsForCalculation.length} inputs against ${rules.length} rules`
+        "Inputs for calculation:",
+        JSON.stringify(inputsForCalculation, null, 2)
       );
+
+      // Calculate diagnosis using Certainty Factor
       const calculationResult = await CertaintyFactorService.calculateDiagnosis(
         inputsForCalculation,
         rules
       );
-      console.log(`⏱️ Step 5 - CF Calculation: ${Date.now() - cfStartTime}ms`);
 
-      // Final update
-      const updateStartTime = Date.now();
-      let finalDiagnosis;
+      console.log("=== CALCULATION RESULT ===");
+      console.log(
+        "All results:",
+        JSON.stringify(calculationResult.allResults, null, 2)
+      );
+      console.log(
+        "Best diagnosis:",
+        JSON.stringify(calculationResult.bestDiagnosis, null, 2)
+      );
 
+      // Update diagnosis with result
+      let finalDiagnosis = null;
       if (
         calculationResult.bestDiagnosis &&
         calculationResult.bestDiagnosis.cfValue > 0
       ) {
-        console.log(
-          `  🎯 Best diagnosis found: ${calculationResult.bestDiagnosis.percentage}%`
-        );
+        console.log("Updating diagnosis with result...");
+
+        // Get penyakit info
+        const penyakit = await prisma.penyakit.findUnique({
+          where: { id: calculationResult.bestDiagnosis.penyakitId },
+        });
+
+        console.log("Found penyakit:", penyakit?.nama);
+
+        // Update diagnosis with result
         finalDiagnosis = await prisma.diagnosis.update({
           where: { id: diagnosisId },
           data: {
@@ -358,61 +318,90 @@ const DiagnosisController = {
             persentase: calculationResult.bestDiagnosis.percentage,
             status: "completed",
           },
-          select: {
-            id: true,
-            penyakitId: true,
-            cfResult: true,
-            persentase: true,
-            status: true,
-            penyakit: { select: { id: true, nama: true, kode: true } },
-            user: { select: { id: true, nama: true, noWhatsapp: true } },
+          include: {
+            penyakit: true,
+            user: true,
             userGejalaInputs: {
-              select: {
-                gejalaId: true,
-                cfUser: true,
-                gejala: { select: { kode: true, nama: true } },
+              include: {
+                gejala: true,
               },
             },
           },
         });
+
+        // Send WhatsApp notification to user
+        try {
+          console.log("Sending WhatsApp notification to user...");
+          const whatsappResult = await WhatsAppService.sendDiagnosisResult(
+            finalDiagnosis.user.noWhatsapp,
+            finalDiagnosis.user.nama,
+            calculationResult.bestDiagnosis,
+            penyakit.nama
+          );
+          console.log("WhatsApp notification result:", whatsappResult);
+        } catch (whatsappError) {
+          console.error("WhatsApp notification failed:", whatsappError);
+          // Don't fail the diagnosis if WhatsApp fails
+        }
       } else {
-        console.log(`  ❌ No diagnosis found`);
+        console.log("No significant diagnosis found, marking as completed");
+
+        // No diagnosis found, still mark as completed
         finalDiagnosis = await prisma.diagnosis.update({
           where: { id: diagnosisId },
-          data: { status: "completed" },
-          select: {
-            id: true,
-            status: true,
-            user: { select: { id: true, nama: true, noWhatsapp: true } },
+          data: {
+            status: "completed",
+          },
+          include: {
+            user: true,
             userGejalaInputs: {
-              select: {
-                gejalaId: true,
-                cfUser: true,
-                gejala: { select: { kode: true, nama: true } },
+              include: {
+                gejala: true,
               },
             },
           },
         });
+
+        // Send WhatsApp notification for no diagnosis
+        try {
+          console.log("Sending WhatsApp notification for no diagnosis...");
+          const whatsappResult = await WhatsAppService.sendNoDiagnosisResult(
+            finalDiagnosis.user.noWhatsapp,
+            finalDiagnosis.user.nama
+          );
+          console.log("WhatsApp notification result:", whatsappResult);
+        } catch (whatsappError) {
+          console.error("WhatsApp notification failed:", whatsappError);
+        }
       }
+
+      console.log("=== FINAL DIAGNOSIS ===");
+      console.log("Final diagnosis ID:", finalDiagnosis.id);
+      console.log("Penyakit:", finalDiagnosis.penyakit?.nama || "None");
+      console.log("Persentase:", finalDiagnosis.persentase || 0);
       console.log(
-        `⏱️ Step 6 - Final update: ${Date.now() - updateStartTime}ms`
+        "Total gejala inputs:",
+        finalDiagnosis.userGejalaInputs.length
       );
 
-      const totalTime = Date.now() - startTime;
-      console.log(`🎯 SUBMIT SYMPTOMS TOTAL: ${totalTime}ms`);
+      const responseData = {
+        diagnosis: finalDiagnosis,
+        calculationDetails: calculationResult,
+      };
+
+      console.log("=== SENDING RESPONSE ===");
+      console.log("Response success: true");
 
       return h
         .response({
           success: true,
-          data: {
-            diagnosis: finalDiagnosis,
-            calculationDetails: calculationResult,
-          },
+          data: responseData,
         })
         .code(200);
     } catch (error) {
-      const totalTime = Date.now() - startTime;
-      console.error(`❌ SUBMIT SYMPTOMS ERROR after ${totalTime}ms:`, error);
+      console.error("=== SUBMIT SYMPTOMS ERROR ===");
+      console.error("Error:", error);
+      console.error("Stack trace:", error.stack);
 
       // Handle specific Prisma errors
       if (error.code === "P2002") {
@@ -428,7 +417,7 @@ const DiagnosisController = {
         return h
           .response({
             success: false,
-            message: "Database timeout. Silakan coba lagi.",
+            message: "Transaksi database timeout. Silakan coba lagi.",
           })
           .code(500);
       }
@@ -444,32 +433,19 @@ const DiagnosisController = {
 
   async getGejalaList(request, h) {
     try {
-      const startTime = Date.now();
       console.log("=== GET GEJALA LIST ===");
 
-      // Simple query with minimal fields
       const gejalaList = await prisma.gejala.findMany({
-        select: {
-          id: true,
-          kode: true,
-          nama: true,
-          deskripsi: true,
-        },
         orderBy: { kode: "asc" },
       });
 
-      const duration = Date.now() - startTime;
-      console.log(
-        `⏱️ Gejala list fetched in ${duration}ms - Found ${gejalaList.length} items`
-      );
+      console.log("Found", gejalaList.length, "gejala items");
 
-      // Add cache headers for client-side caching
       return h
         .response({
           success: true,
           data: gejalaList,
         })
-        .header("Cache-Control", "public, max-age=300") // 5 minutes cache
         .code(200);
     } catch (error) {
       console.error("Get gejala list error:", error);
@@ -482,6 +458,7 @@ const DiagnosisController = {
     }
   },
 
+  // Add method to check users
   async getAllUsers(request, h) {
     try {
       const users = await prisma.user.findMany({
@@ -517,10 +494,12 @@ const DiagnosisController = {
     }
   },
 
+  // Modified cleanup to only remove truly orphaned data
   async cleanupData(request, h) {
     try {
       console.log("=== CLEANUP DATA ===");
 
+      // Only clean up orphaned user gejala inputs (where diagnosis doesn't exist)
       const existingDiagnosisIds = await prisma.diagnosis.findMany({
         select: { id: true },
       });
@@ -534,6 +513,7 @@ const DiagnosisController = {
         },
       });
 
+      // Only clean up very old processing diagnoses (older than 7 days, not 24 hours)
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       const veryStaleProcessing = await prisma.diagnosis.deleteMany({
         where: {
@@ -544,7 +524,14 @@ const DiagnosisController = {
         },
       });
 
+      // NEVER delete users - they should remain for historical data
       console.log("Cleanup completed - Users are preserved");
+
+      console.log("Cleaned up:", {
+        orphanedInputs: orphanedInputs.count,
+        veryStaleProcessing: veryStaleProcessing.count,
+        usersDeleted: 0, // Never delete users
+      });
 
       return h
         .response({
@@ -567,6 +554,7 @@ const DiagnosisController = {
     }
   },
 
+  // Add method to get diagnosis by ID for debugging
   async getDiagnosisById(request, h) {
     try {
       const { id } = request.params;
@@ -610,6 +598,7 @@ const DiagnosisController = {
     }
   },
 
+  // Add method to get user's diagnosis history
   async getUserDiagnoses(request, h) {
     try {
       const { userId } = request.params;
