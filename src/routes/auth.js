@@ -28,7 +28,9 @@ const authRoutes = [
       validate: {
         payload: Joi.object({
           sessionId: Joi.string().optional(),
-        }).allow(null),
+        })
+          .optional()
+          .allow(null),
       },
     },
   },
