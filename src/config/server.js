@@ -18,8 +18,19 @@ const init = async () => {
         : process.env.HOST || "localhost",
     routes: {
       cors: {
-        origin: ["*"], // Allow all origins
-        headers: ["Accept", "Authorization", "Content-Type", "If-None-Match"],
+        origin:
+          process.env.NODE_ENV === "production"
+            ? [
+                "https://mind-care-apps-qcto94qiw-chacanisya48-gmailcoms-projects.vercel.app",
+              ]
+            : ["*"], // Allow all origins in development
+        headers: [
+          "Accept",
+          "Authorization",
+          "Content-Type",
+          "If-None-Match",
+          "Origin",
+        ],
         additionalHeaders: ["cache-control", "x-requested-with"],
         credentials: true,
       },
