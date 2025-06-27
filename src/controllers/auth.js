@@ -1,8 +1,6 @@
 const bcrypt = require("bcrypt");
 const prisma = require("../config/database");
-
-// Simple session storage (in production, use Redis or database)
-const sessions = new Map();
+const crypto = require("crypto");
 
 const AuthController = {
   async login(request, h) {
@@ -36,28 +34,24 @@ const AuthController = {
           .code(401);
       }
 
-      // Generate simple session ID
-      const sessionId = `session_${Date.now()}_${Math.random()
-        .toString(36)
-        .substr(2, 9)}`;
-
-      // Store session
-      sessions.set(sessionId, {
+      // Create simple token with admin info and timestamp
+      const tokenData = {
         adminId: admin.id,
         username: admin.username,
         name: admin.name,
-        createdAt: new Date(),
-        lastAccess: new Date(),
-      });
+        loginTime: Date.now(),
+      };
 
-      console.log("Session created:", sessionId);
-      console.log("Total active sessions:", sessions.size);
+      // Simple base64 encoding (not for security, just for transport)
+      const token = Buffer.from(JSON.stringify(tokenData)).toString("base64");
+
+      console.log("Login successful for:", admin.username);
 
       return h
         .response({
           success: true,
           data: {
-            sessionId,
+            token,
             admin: {
               id: admin.id,
               username: admin.username,
@@ -71,7 +65,7 @@ const AuthController = {
       return h
         .response({
           success: false,
-          message: "Gagal login",
+          message: "Gagal login: " + error.message,
         })
         .code(500);
     }
@@ -79,61 +73,44 @@ const AuthController = {
 
   async verifyToken(request, h) {
     try {
-      // Check for session ID in Authorization header (since cookies might not work in production)
+      // Check for token in Authorization header
       const authHeader = request.headers.authorization;
-      const sessionId = authHeader ? authHeader.replace("Bearer ", "") : null;
+      const token = authHeader ? authHeader.replace("Bearer ", "") : null;
 
-      console.log("Verify session attempt with sessionId:", sessionId);
-      console.log("Available sessions:", Array.from(sessions.keys()));
+      console.log("Verify token attempt");
 
-      if (!sessionId) {
-        console.log("No session ID provided");
+      if (!token) {
+        console.log("No token provided");
         return h
           .response({
             success: false,
-            message: "Session tidak ditemukan",
+            message: "Token tidak ditemukan",
           })
           .code(401);
       }
 
-      const session = sessions.get(sessionId);
-
-      if (!session) {
-        console.log("Session not found in storage:", sessionId);
+      // Decode token
+      let tokenData;
+      try {
+        const decoded = Buffer.from(token, "base64").toString("utf-8");
+        tokenData = JSON.parse(decoded);
+      } catch (decodeError) {
+        console.log("Invalid token format");
         return h
           .response({
             success: false,
-            message: "Session tidak valid atau telah berakhir",
+            message: "Token tidak valid",
           })
           .code(401);
       }
 
-      // Check if session is expired (24 hours)
-      const now = new Date();
-      const sessionAge = now - session.createdAt;
-      if (sessionAge > 24 * 60 * 60 * 1000) {
-        console.log("Session expired:", sessionId);
-        sessions.delete(sessionId);
-        return h
-          .response({
-            success: false,
-            message: "Session telah berakhir",
-          })
-          .code(401);
-      }
-
-      // Update last access time
-      session.lastAccess = now;
-      sessions.set(sessionId, session);
-
-      // Get fresh admin data
+      // Verify admin still exists in database
       const admin = await prisma.admin.findUnique({
-        where: { id: session.adminId },
+        where: { id: tokenData.adminId },
       });
 
       if (!admin) {
-        console.log("Admin not found for session:", sessionId);
-        sessions.delete(sessionId);
+        console.log("Admin not found for token");
         return h
           .response({
             success: false,
@@ -142,7 +119,20 @@ const AuthController = {
           .code(401);
       }
 
-      console.log("Session verified successfully for:", admin.username);
+      // Optional: Check if token is too old (24 hours)
+      const tokenAge = Date.now() - tokenData.loginTime;
+      const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+      if (tokenAge > maxAge) {
+        console.log("Token expired");
+        return h
+          .response({
+            success: false,
+            message: "Token telah berakhir, silakan login ulang",
+          })
+          .code(401);
+      }
+
+      console.log("Token verified successfully for:", admin.username);
 
       return h
         .response({
@@ -157,11 +147,11 @@ const AuthController = {
         })
         .code(200);
     } catch (error) {
-      console.error("Verify session error:", error);
+      console.error("Verify token error:", error);
       return h
         .response({
           success: false,
-          message: "Session tidak valid",
+          message: "Token tidak valid: " + error.message,
         })
         .code(401);
     }
@@ -169,13 +159,9 @@ const AuthController = {
 
   async logout(request, h) {
     try {
-      const authHeader = request.headers.authorization;
-      const sessionId = authHeader ? authHeader.replace("Bearer ", "") : null;
-
-      if (sessionId) {
-        sessions.delete(sessionId);
-        console.log("Session deleted:", sessionId);
-      }
+      // Logout hanya menghapus token di client side
+      // Server tidak perlu melakukan apa-apa
+      console.log("Logout request received");
 
       return h
         .response({
@@ -188,7 +174,7 @@ const AuthController = {
       return h
         .response({
           success: false,
-          message: "Gagal logout",
+          message: "Gagal logout: " + error.message,
         })
         .code(500);
     }
