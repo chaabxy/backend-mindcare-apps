@@ -1,4 +1,4 @@
-const DashboardController = require("../controllers/dashboard");
+const DashboardController = require("../controllers/dashboard")
 
 const dashboardRoutes = [
   {
@@ -6,11 +6,6 @@ const dashboardRoutes = [
     path: "/api/dashboard/stats",
     handler: DashboardController.getStats,
   },
-  {
-    method: "GET",
-    path: "/api/health",
-    handler: DashboardController.healthCheck,
-  },
-];
+]
 
-module.exports = dashboardRoutes;
+module.exports = dashboardRoutes

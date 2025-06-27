@@ -1,18 +1,13 @@
-const { prisma } = require("../config/database");
-const ExcelExportService = require("../services/excel-export");
+const prisma = require("../config/database")
+const ExcelExportService = require("../services/excel-export")
 
 const PengecekanUserController = {
   async getAllDiagnoses(request, h) {
     try {
-      const {
-        page = 1,
-        limit = 10,
-        search = "",
-        penyakitId = "",
-      } = request.query;
+      const { page = 1, limit = 10, search = "", penyakitId = "" } = request.query
 
-      const skip = (Number.parseInt(page) - 1) * Number.parseInt(limit);
-      const take = Number.parseInt(limit);
+      const skip = (Number.parseInt(page) - 1) * Number.parseInt(limit)
+      const take = Number.parseInt(limit)
 
       const where = {
         status: "completed",
@@ -25,7 +20,7 @@ const PengecekanUserController = {
           },
         }),
         ...(penyakitId && { penyakitId }),
-      };
+      }
 
       const [diagnoses, total] = await Promise.all([
         prisma.diagnosis.findMany({
@@ -44,7 +39,7 @@ const PengecekanUserController = {
           take,
         }),
         prisma.diagnosis.count({ where }),
-      ]);
+      ])
 
       return h
         .response({
@@ -59,21 +54,21 @@ const PengecekanUserController = {
             },
           },
         })
-        .code(200);
+        .code(200)
     } catch (error) {
-      console.error("Get diagnoses error:", error);
+      console.error("Get diagnoses error:", error)
       return h
         .response({
           success: false,
           message: "Gagal mengambil data diagnosis",
         })
-        .code(500);
+        .code(500)
     }
   },
 
   async getDiagnosisDetail(request, h) {
     try {
-      const { id } = request.params;
+      const { id } = request.params
 
       const diagnosis = await prisma.diagnosis.findUnique({
         where: { id },
@@ -86,7 +81,7 @@ const PengecekanUserController = {
             },
           },
         },
-      });
+      })
 
       if (!diagnosis) {
         return h
@@ -94,7 +89,7 @@ const PengecekanUserController = {
             success: false,
             message: "Diagnosis tidak ditemukan",
           })
-          .code(404);
+          .code(404)
       }
 
       return h
@@ -102,15 +97,15 @@ const PengecekanUserController = {
           success: true,
           data: diagnosis,
         })
-        .code(200);
+        .code(200)
     } catch (error) {
-      console.error("Get diagnosis detail error:", error);
+      console.error("Get diagnosis detail error:", error)
       return h
         .response({
           success: false,
           message: "Gagal mengambil detail diagnosis",
         })
-        .code(500);
+        .code(500)
     }
   },
 
@@ -123,59 +118,54 @@ const PengecekanUserController = {
           penyakit: true,
         },
         orderBy: { createdAt: "desc" },
-      });
+      })
 
-      const workbook = await ExcelExportService.exportDiagnosisData(diagnoses);
-      const buffer = await workbook.xlsx.writeBuffer();
+      const workbook = await ExcelExportService.exportDiagnosisData(diagnoses)
+      const buffer = await workbook.xlsx.writeBuffer()
 
       return h
         .response(buffer)
-        .header(
-          "Content-Type",
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+        .header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         .header(
           "Content-Disposition",
-          `attachment; filename="data-diagnosis-${
-            new Date().toISOString().split("T")[0]
-          }.xlsx"`
+          `attachment; filename="data-diagnosis-${new Date().toISOString().split("T")[0]}.xlsx"`,
         )
-        .code(200);
+        .code(200)
     } catch (error) {
-      console.error("Export diagnoses error:", error);
+      console.error("Export diagnoses error:", error)
       return h
         .response({
           success: false,
           message: "Gagal export data diagnosis",
         })
-        .code(500);
+        .code(500)
     }
   },
 
   async deleteDiagnosis(request, h) {
     try {
-      const { id } = request.params;
+      const { id } = request.params
 
       await prisma.diagnosis.delete({
         where: { id },
-      });
+      })
 
       return h
         .response({
           success: true,
           message: "Diagnosis berhasil dihapus",
         })
-        .code(200);
+        .code(200)
     } catch (error) {
-      console.error("Delete diagnosis error:", error);
+      console.error("Delete diagnosis error:", error)
       return h
         .response({
           success: false,
           message: "Gagal menghapus diagnosis",
         })
-        .code(500);
+        .code(500)
     }
   },
-};
+}
 
-module.exports = PengecekanUserController;
+module.exports = PengecekanUserController

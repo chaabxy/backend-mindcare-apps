@@ -1,6 +1,6 @@
-const { prisma } = require("../config/database");
+const prisma = require("../config/database");
 const CertaintyFactorService = require("../services/certainty-factor");
-const WhatsAppService = require("../services/whatsapp"); // Declare WhatsAppService
+
 
 const DiagnosisController = {
   async startDiagnosis(request, h) {

@@ -12,13 +12,10 @@ const diagnosisRoutes = require("../routes/diagnosis");
 const init = async () => {
   const server = Hapi.server({
     port: process.env.PORT || 3001,
-    host:
-      process.env.NODE_ENV === "production"
-        ? "0.0.0.0"
-        : process.env.HOST || "localhost",
+    host: process.env.HOST || "0.0.0.0", // Use 0.0.0.0 for universal access
     routes: {
       cors: {
-        origin: ["*"], // Allow all origins
+        origin: ["*"], // Allow all origins (development only)
         headers: ["Accept", "Authorization", "Content-Type", "If-None-Match"],
         additionalHeaders: ["cache-control", "x-requested-with"],
         credentials: true,
@@ -37,71 +34,41 @@ const init = async () => {
     },
   });
 
-  // Enhanced error logging
+  // Log request errors
   server.events.on("request", (request, event, tags) => {
     if (tags.error) {
-      console.error("Request error:", {
-        error: event.error?.message || event.error,
-        stack: event.error?.stack,
-        url: request.url,
-        method: request.method,
-        payload: request.payload,
-      });
+      console.error("Request error:", event.error);
     }
   });
 
-  // Enhanced response logging
+  // Log response info
   server.events.on("response", (request) => {
-    const logData = {
-      timestamp: new Date().toISOString(),
-      ip: request.info.remoteAddress,
-      method: request.method.toUpperCase(),
-      path: request.path,
-      statusCode: request.response.statusCode,
-      responseTime: Date.now() - request.info.received,
-    };
-
-    if (request.response.statusCode >= 400) {
-      console.error("Error Response:", logData);
-    } else {
-      console.log(
-        "Request:",
-        `${logData.method} ${logData.path} - ${logData.statusCode} (${logData.responseTime}ms)`
-      );
-    }
+    console.log(
+      `${request.info.remoteAddress} - ${request.method.toUpperCase()} ${
+        request.path
+      } - ${request.response.statusCode}`
+    );
   });
 
   // Register all route groups
-  try {
-    server.route(authRoutes);
-    server.route(dashboardRoutes);
-    server.route(pengecekanUserRoutes);
-    server.route(dataPakarRoutes);
-    server.route(diagnosisRoutes);
-    console.log("All routes registered successfully");
-  } catch (error) {
-    console.error("Error registering routes:", error);
-    throw error;
-  }
+  server.route(authRoutes);
+  server.route(dashboardRoutes);
+  server.route(pengecekanUserRoutes);
+  server.route(dataPakarRoutes);
+  server.route(diagnosisRoutes);
 
   // Start the server
-  try {
-    await server.start();
-    console.log("=== SERVER STARTED ===");
-    console.log("Server running on:", server.info.uri);
-    console.log("Environment:", process.env.NODE_ENV || "development");
-    console.log("CORS enabled for all origins");
+  await server.start();
 
-    // Show all registered API endpoints
-    console.log("\n=== Available API Endpoints ===");
-    server.table().forEach((route) => {
-      console.log(`${route.method.toUpperCase()} ${route.path}`);
-    });
-    console.log("===============================");
-  } catch (error) {
-    console.error("Failed to start server:", error);
-    throw error;
-  }
+  // Display server info
+  console.log("Server running on:", server.info.uri);
+  console.log("CORS enabled for all origins");
+
+  // Show all registered API endpoints
+  console.log("\nAvailable API Endpoints:");
+  server.table().forEach((route) => {
+    console.log(`${route.method.toUpperCase()} ${route.path}`);
+  });
 };
 
 module.exports = { init };
