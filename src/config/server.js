@@ -34,6 +34,27 @@ const init = async () => {
     },
   });
 
+  // Global error handling
+  server.ext("onPreResponse", (request, h) => {
+    const response = request.response;
+
+    if (response.isBoom) {
+      console.error("Server Error:", response.message);
+      console.error("Stack:", response.stack);
+
+      // Don't crash the server, return error response
+      return h
+        .response({
+          success: false,
+          message: response.message || "Internal Server Error",
+          statusCode: response.output.statusCode,
+        })
+        .code(response.output.statusCode);
+    }
+
+    return h.continue;
+  });
+
   // Log request errors
   server.events.on("request", (request, event, tags) => {
     if (tags.error) {
@@ -50,6 +71,25 @@ const init = async () => {
     );
   });
 
+  // Add health check endpoint
+  server.route({
+    method: "GET",
+    path: "/health",
+    handler: (request, h) => {
+      return h
+        .response({
+          status: "OK",
+          timestamp: new Date().toISOString(),
+          env: {
+            NODE_ENV: process.env.NODE_ENV,
+            DATABASE_URL: process.env.DATABASE_URL ? "Set" : "Missing",
+            JWT_SECRET: process.env.JWT_SECRET ? "Set" : "Missing",
+          },
+        })
+        .code(200);
+    },
+  });
+
   // Register all route groups
   server.route(authRoutes);
   server.route(dashboardRoutes);
@@ -61,11 +101,12 @@ const init = async () => {
   await server.start();
 
   // Display server info
-  console.log("Server running on:", server.info.uri);
-  console.log("CORS enabled for all origins");
+  console.log("✅ Server running on:", server.info.uri);
+  console.log("✅ CORS enabled for all origins");
+  console.log("✅ Environment:", process.env.NODE_ENV || "development");
 
   // Show all registered API endpoints
-  console.log("\nAvailable API Endpoints:");
+  console.log("\n📋 Available API Endpoints:");
   server.table().forEach((route) => {
     console.log(`${route.method.toUpperCase()} ${route.path}`);
   });

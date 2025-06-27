@@ -7,6 +7,13 @@ const prisma = new PrismaClient({
       url: process.env.DATABASE_URL,
     },
   },
+  // Add connection pooling and timeout settings
+  __internal: {
+    engine: {
+      connectTimeout: 60000,
+      pool_timeout: 60000,
+    },
+  },
 });
 
 // Simple connection test without crashing the app
@@ -24,17 +31,22 @@ const testConnection = async () => {
 testConnection();
 
 // Handle graceful shutdown
-process.on("beforeExit", async () => {
-  await prisma.$disconnect();
-});
+const gracefulShutdown = async () => {
+  try {
+    await prisma.$disconnect();
+    console.log("Database disconnected");
+  } catch (error) {
+    console.error("Error disconnecting database:", error);
+  }
+};
 
+process.on("beforeExit", gracefulShutdown);
 process.on("SIGINT", async () => {
-  await prisma.$disconnect();
+  await gracefulShutdown();
   process.exit(0);
 });
-
 process.on("SIGTERM", async () => {
-  await prisma.$disconnect();
+  await gracefulShutdown();
   process.exit(0);
 });
 
