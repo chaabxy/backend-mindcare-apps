@@ -12,10 +12,10 @@ const diagnosisRoutes = require("../routes/diagnosis");
 const init = async () => {
   const server = Hapi.server({
     port: process.env.PORT || 3001,
-    host: process.env.HOST || "0.0.0.0", // Use 0.0.0.0 for universal access
+    host: process.env.HOST || "0.0.0.0",
     routes: {
       cors: {
-        origin: ["*"], // Allow all origins (development only)
+        origin: ["*"],
         headers: ["Accept", "Authorization", "Content-Type", "If-None-Match"],
         additionalHeaders: ["cache-control", "x-requested-with"],
         credentials: true,
@@ -31,6 +31,13 @@ const init = async () => {
           }
         },
       },
+    },
+    // Add state configuration for cookies
+    state: {
+      strictHeader: false,
+      ignoreErrors: true,
+      isSecure: process.env.NODE_ENV === "production",
+      isSameSite: "Lax",
     },
   });
 
@@ -63,6 +70,7 @@ const init = async () => {
   // Display server info
   console.log("Server running on:", server.info.uri);
   console.log("CORS enabled for all origins");
+  console.log("Session-based authentication enabled");
 
   // Show all registered API endpoints
   console.log("\nAvailable API Endpoints:");
