@@ -7,29 +7,46 @@ const prisma = new PrismaClient({
       url: process.env.DATABASE_URL,
     },
   },
-  // Add transaction timeout configuration
+  // REVERT: Use safer transaction timeout
   transactionOptions: {
-    maxWait: 3000, // Reduce to 3 seconds
-    timeout: 8000, // Reduce to 8 seconds
+    maxWait: 10000, // Back to 10 seconds
+    timeout: 20000, // Back to 20 seconds
   },
-  // Add connection pool settings
+  // REVERT: Use safer connection settings
   __internal: {
     engine: {
-      connectTimeout: 5000, // 5 seconds connection timeout
-      pool_timeout: 5000, // 5 seconds pool timeout
+      connectTimeout: 10000, // Back to 10 seconds
+      pool_timeout: 10000, // Back to 10 seconds
     },
   },
 });
 
-// Test connection on startup
-prisma
-  .$connect()
-  .then(() => {
-    console.log("✅ Database connected successfully");
-  })
-  .catch((error) => {
-    console.error("❌ Database connection failed:", error);
-  });
+// Test connection on startup with retry
+const connectWithRetry = async (retries = 3) => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      await prisma.$connect();
+      console.log("✅ Database connected successfully");
+      return;
+    } catch (error) {
+      console.error(
+        `❌ Database connection attempt ${i + 1} failed:`,
+        error.message
+      );
+      if (i === retries - 1) {
+        console.error("❌ All database connection attempts failed");
+        throw error;
+      }
+      // Wait before retry
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }
+};
+
+// Initialize connection
+connectWithRetry().catch((error) => {
+  console.error("❌ Database connection failed:", error);
+});
 
 // Handle graceful shutdown
 process.on("beforeExit", async () => {

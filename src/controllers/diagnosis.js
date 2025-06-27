@@ -20,7 +20,7 @@ const DiagnosisController = {
           .code(400);
       }
 
-      // Clean phone number format (optimized)
+      // Clean phone number format
       const phoneStartTime = Date.now();
       let cleanedPhone = noWhatsapp.replace(/\s+/g, "").replace(/[^\d+]/g, "");
       if (cleanedPhone.startsWith("0")) {
@@ -34,7 +34,7 @@ const DiagnosisController = {
         `⏱️ Step 2 - Phone cleanup: ${Date.now() - phoneStartTime}ms`
       );
 
-      // SUPER OPTIMIZED: Create user and diagnosis in a single transaction
+      // SAFER: Create user and diagnosis with normal timeout
       const transactionStartTime = Date.now();
       const result = await prisma.$transaction(
         async (tx) => {
@@ -81,8 +81,8 @@ const DiagnosisController = {
           return { user, diagnosis };
         },
         {
-          maxWait: 2000, // Reduce to 2 seconds
-          timeout: 4000, // Reduce to 4 seconds
+          maxWait: 8000, // Safer timeout
+          timeout: 15000, // Safer timeout
         }
       );
       console.log(
@@ -146,7 +146,7 @@ const DiagnosisController = {
           .code(400);
       }
 
-      // ULTRA OPTIMIZED: Parallel data fetching with absolute minimal fields
+      // SAFER: Parallel data fetching with normal timeout
       const dataFetchStartTime = Date.now();
       const uniqueGejalaIds = [
         ...new Set(gejalaInputs.map((input) => input.gejalaId)),
@@ -156,10 +156,10 @@ const DiagnosisController = {
         `  🔍 Fetching data for ${uniqueGejalaIds.length} unique gejala...`
       );
 
-      // EXTREME OPTIMIZATION: Use Promise.allSettled for better error handling
+      // Use Promise.allSettled for better error handling
       const [diagnosisResult, gejalaResult, rulesResult] =
         await Promise.allSettled([
-          // Get diagnosis with existing inputs - ABSOLUTE MINIMAL FIELDS
+          // Get diagnosis with existing inputs
           prisma.diagnosis.findUnique({
             where: { id: diagnosisId },
             select: {
@@ -174,12 +174,12 @@ const DiagnosisController = {
               },
             },
           }),
-          // Get valid gejala IDs - ONLY IDs
+          // Get valid gejala IDs
           prisma.gejala.findMany({
             where: { id: { in: uniqueGejalaIds } },
             select: { id: true },
           }),
-          // Get rules for calculation - CACHED APPROACH
+          // Get rules for calculation
           prisma.rule.findMany({
             select: {
               penyakitId: true,
@@ -223,7 +223,7 @@ const DiagnosisController = {
           .code(404);
       }
 
-      // ULTRA OPTIMIZED: Process inputs with Set operations
+      // Process inputs with Set operations
       const processStartTime = Date.now();
       const validGejalaIds = new Set(existingGejala.map((g) => g.id));
       const existingGejalaMap = new Map(
@@ -234,7 +234,7 @@ const DiagnosisController = {
       const inputsToUpdate = [];
       const processedGejalaIds = new Set();
 
-      // OPTIMIZED: Single loop with early validation
+      // Single loop with early validation
       for (const input of gejalaInputs) {
         if (
           !validGejalaIds.has(input.gejalaId) ||
@@ -268,7 +268,7 @@ const DiagnosisController = {
         `⏱️ Step 3 - Input processing: ${Date.now() - processStartTime}ms`
       );
 
-      // ULTRA OPTIMIZED: Database operations with reduced timeout
+      // SAFER: Database operations with normal timeout
       const dbStartTime = Date.now();
       const updatedInputs = await prisma.$transaction(
         async (tx) => {
@@ -276,7 +276,7 @@ const DiagnosisController = {
             `  🔄 DB Transaction started: ${Date.now() - dbStartTime}ms`
           );
 
-          // OPTIMIZED: Batch operations
+          // Batch operations
           const operations = [];
 
           if (newInputsToAdd.length > 0) {
@@ -304,7 +304,7 @@ const DiagnosisController = {
             await Promise.all(operations);
           }
 
-          // Get all current inputs for calculation - MINIMAL FIELDS
+          // Get all current inputs for calculation
           return await tx.userGejalaInput.findMany({
             where: { diagnosisId },
             select: {
@@ -315,15 +315,15 @@ const DiagnosisController = {
           });
         },
         {
-          maxWait: 1500, // Reduce to 1.5 seconds
-          timeout: 4000, // Reduce to 4 seconds
+          maxWait: 8000, // Safer timeout
+          timeout: 15000, // Safer timeout
         }
       );
       console.log(
         `⏱️ Step 4 - Database operations: ${Date.now() - dbStartTime}ms`
       );
 
-      // OPTIMIZED: CF calculation with pre-processed data
+      // CF calculation
       const cfStartTime = Date.now();
       const inputsForCalculation = updatedInputs.map((input) => ({
         gejalaId: input.gejalaId,
@@ -339,7 +339,7 @@ const DiagnosisController = {
       );
       console.log(`⏱️ Step 5 - CF Calculation: ${Date.now() - cfStartTime}ms`);
 
-      // OPTIMIZED: Final update with minimal data
+      // Final update
       const updateStartTime = Date.now();
       let finalDiagnosis;
 
@@ -447,7 +447,7 @@ const DiagnosisController = {
       const startTime = Date.now();
       console.log("=== GET GEJALA LIST ===");
 
-      // ULTRA OPTIMIZED: Cache-friendly query with minimal fields
+      // Simple query with minimal fields
       const gejalaList = await prisma.gejala.findMany({
         select: {
           id: true,
@@ -456,8 +456,6 @@ const DiagnosisController = {
           deskripsi: true,
         },
         orderBy: { kode: "asc" },
-        // Add caching hint
-        // cacheStrategy: { ttl: 300 }, // 5 minutes cache if supported
       });
 
       const duration = Date.now() - startTime;
