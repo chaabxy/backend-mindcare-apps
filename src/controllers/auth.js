@@ -9,11 +9,14 @@ const AuthController = {
     try {
       const { username, password } = request.payload;
 
+      console.log("Login attempt for username:", username);
+
       const admin = await prisma.admin.findUnique({
         where: { username },
       });
 
       if (!admin) {
+        console.log("Admin not found for username:", username);
         return h
           .response({
             success: false,
@@ -24,6 +27,7 @@ const AuthController = {
 
       const isValidPassword = await bcrypt.compare(password, admin.password);
       if (!isValidPassword) {
+        console.log("Invalid password for username:", username);
         return h
           .response({
             success: false,
@@ -46,29 +50,22 @@ const AuthController = {
         lastAccess: new Date(),
       });
 
-      // Set session cookie
-      const response = h.response({
-        success: true,
-        data: {
-          sessionId,
-          admin: {
-            id: admin.id,
-            username: admin.username,
-            name: admin.name,
+      console.log("Session created:", sessionId);
+      console.log("Total active sessions:", sessions.size);
+
+      return h
+        .response({
+          success: true,
+          data: {
+            sessionId,
+            admin: {
+              id: admin.id,
+              username: admin.username,
+              name: admin.name,
+            },
           },
-        },
-      });
-
-      // Set HTTP-only cookie for security
-      response.state("admin_session", sessionId, {
-        ttl: 24 * 60 * 60 * 1000, // 24 hours
-        isSecure: process.env.NODE_ENV === "production",
-        isHttpOnly: true,
-        isSameSite: "Lax",
-        path: "/",
-      });
-
-      return response.code(200);
+        })
+        .code(200);
     } catch (error) {
       console.error("Login error:", error);
       return h
@@ -82,12 +79,15 @@ const AuthController = {
 
   async verifyToken(request, h) {
     try {
-      // Check for session ID in cookie or header
-      const sessionId =
-        request.state.admin_session ||
-        request.headers.authorization?.replace("Bearer ", "");
+      // Check for session ID in Authorization header (since cookies might not work in production)
+      const authHeader = request.headers.authorization;
+      const sessionId = authHeader ? authHeader.replace("Bearer ", "") : null;
+
+      console.log("Verify session attempt with sessionId:", sessionId);
+      console.log("Available sessions:", Array.from(sessions.keys()));
 
       if (!sessionId) {
+        console.log("No session ID provided");
         return h
           .response({
             success: false,
@@ -99,6 +99,7 @@ const AuthController = {
       const session = sessions.get(sessionId);
 
       if (!session) {
+        console.log("Session not found in storage:", sessionId);
         return h
           .response({
             success: false,
@@ -111,6 +112,7 @@ const AuthController = {
       const now = new Date();
       const sessionAge = now - session.createdAt;
       if (sessionAge > 24 * 60 * 60 * 1000) {
+        console.log("Session expired:", sessionId);
         sessions.delete(sessionId);
         return h
           .response({
@@ -130,6 +132,7 @@ const AuthController = {
       });
 
       if (!admin) {
+        console.log("Admin not found for session:", sessionId);
         sessions.delete(sessionId);
         return h
           .response({
@@ -138,6 +141,8 @@ const AuthController = {
           })
           .code(401);
       }
+
+      console.log("Session verified successfully for:", admin.username);
 
       return h
         .response({
@@ -164,23 +169,20 @@ const AuthController = {
 
   async logout(request, h) {
     try {
-      const sessionId =
-        request.state.admin_session ||
-        request.headers.authorization?.replace("Bearer ", "");
+      const authHeader = request.headers.authorization;
+      const sessionId = authHeader ? authHeader.replace("Bearer ", "") : null;
 
       if (sessionId) {
         sessions.delete(sessionId);
+        console.log("Session deleted:", sessionId);
       }
 
-      const response = h.response({
-        success: true,
-        message: "Berhasil logout",
-      });
-
-      // Clear session cookie
-      response.unstate("admin_session");
-
-      return response.code(200);
+      return h
+        .response({
+          success: true,
+          message: "Berhasil logout",
+        })
+        .code(200);
     } catch (error) {
       console.error("Logout error:", error);
       return h
