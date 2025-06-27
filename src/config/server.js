@@ -31,60 +31,22 @@ const init = async () => {
           }
         },
       },
-      timeout: {
-        server: 30000, // 30 seconds server timeout
-        socket: 35000, // 35 seconds socket timeout
-      },
     },
   });
 
-  // Add request lifecycle logging
-  server.ext("onRequest", (request, h) => {
-    console.log(
-      `[${new Date().toISOString()}] ${request.method.toUpperCase()} ${
-        request.path
-      }`
-    );
-    return h.continue;
-  });
-
-  // Add response lifecycle logging
-  server.ext("onPreResponse", (request, h) => {
-    const response = request.response;
-
-    if (response.isBoom) {
-      console.error(
-        `[${new Date().toISOString()}] ERROR ${request.method.toUpperCase()} ${
-          request.path
-        } - ${response.output.statusCode}: ${response.message}`
-      );
-    } else {
-      console.log(
-        `[${new Date().toISOString()}] ${request.method.toUpperCase()} ${
-          request.path
-        } - ${response.statusCode}`
-      );
-    }
-
-    return h.continue;
-  });
-
-  // Handle server errors
+  // Log request errors
   server.events.on("request", (request, event, tags) => {
     if (tags.error) {
-      console.error(
-        `[${new Date().toISOString()}] Request error:`,
-        event.error
-      );
+      console.error("Request error:", event.error);
     }
   });
 
-  // Handle client disconnections
-  server.events.on("disconnect", (request) => {
+  // Log response info
+  server.events.on("response", (request) => {
     console.log(
-      `[${new Date().toISOString()}] Client disconnected: ${request.method.toUpperCase()} ${
+      `${request.info.remoteAddress} - ${request.method.toUpperCase()} ${
         request.path
-      }`
+      } - ${request.response.statusCode}`
     );
   });
 
@@ -95,36 +57,18 @@ const init = async () => {
   server.route(dataPakarRoutes);
   server.route(diagnosisRoutes);
 
-  // Add health check endpoint
-  server.route({
-    method: "GET",
-    path: "/health",
-    handler: (request, h) => {
-      return h
-        .response({
-          status: "healthy",
-          timestamp: new Date().toISOString(),
-          uptime: process.uptime(),
-        })
-        .code(200);
-    },
-  });
-
   // Start the server
   await server.start();
 
   // Display server info
-  console.log("=== SERVER STARTED ===");
   console.log("Server running on:", server.info.uri);
   console.log("CORS enabled for all origins");
-  console.log("Environment:", process.env.NODE_ENV || "development");
 
   // Show all registered API endpoints
-  console.log("\n=== AVAILABLE API ENDPOINTS ===");
+  console.log("\nAvailable API Endpoints:");
   server.table().forEach((route) => {
-    console.log(`${route.method.toUpperCase().padEnd(7)} ${route.path}`);
+    console.log(`${route.method.toUpperCase()} ${route.path}`);
   });
-  console.log("===============================\n");
 };
 
 module.exports = { init };
