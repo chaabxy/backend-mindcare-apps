@@ -1,5 +1,5 @@
-const Joi = require("joi")
-const AuthController = require("../controllers/auth")
+const Joi = require("joi");
+const AuthController = require("../controllers/auth");
 
 const authRoutes = [
   {
@@ -20,6 +20,18 @@ const authRoutes = [
     path: "/api/auth/verify",
     handler: AuthController.verifyToken,
   },
-]
+  {
+    method: "POST",
+    path: "/api/auth/logout",
+    handler: AuthController.logout,
+    options: {
+      validate: {
+        payload: Joi.object({
+          sessionId: Joi.string().optional(),
+        }).allow(null),
+      },
+    },
+  },
+];
 
-module.exports = authRoutes
+module.exports = authRoutes;
